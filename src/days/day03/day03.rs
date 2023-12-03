@@ -1,9 +1,7 @@
 use std::collections::HashMap;
+use std::time::{Instant};
 use crate::utils::file as file;
 
-use regex::Regex;
-use std::time::{Instant};
-use once_cell::sync::{Lazy};
 
 pub fn run() {
     println!("day 3");
@@ -13,72 +11,117 @@ pub fn run() {
     println!("  part 2: {} in {}ms", part_two(), now.elapsed().as_millis());
 }
 
+struct Number {
+    value: u32,
+    id: usize,
+}
+
+struct Symbol {
+    symbol: char,
+    numbers: Vec<u32>,
+}
+
 fn part_one() -> u32 {
     let input_grid = file::get_lines("input/day03/input.txt");
+    return get_symbols(input_grid).into_iter()
+        .map(|symbol| symbol.numbers.into_iter().sum::<u32>())
+        .sum::<u32>();
+}
 
-    //let state = [mut [mut 0u8, ..4], ..4];
+fn part_two() -> u32 {
+    let input_grid = file::get_lines("input/day03/input.txt");
+    get_symbols(input_grid).into_iter()
+        .filter(|symbol| symbol.symbol == '*' && symbol.numbers.len() > 1)
+        .map(|symbol| symbol.numbers.into_iter().reduce(|a, b| a * b).unwrap())
+        .sum::<u32>()
+}
 
+
+fn get_symbols(input_grid: Vec<String>) -> Vec<Symbol> {
     let mut id = 0;
-    let mut numbers = HashMap::new();
-    let mut symbols: Vec<((usize, usize), char)> = Vec::new();
+    let mut numbers: HashMap<(usize, usize), Number> = HashMap::new();
+    let mut symbols: HashMap<(usize, usize), Symbol> = HashMap::new();
 
-    for (row_index, row) in input_grid.iter().enumerate() {
+    for (y, row) in input_grid.iter().enumerate() {
 
-        let mut index = 0;
-        while index != row.len() {
-            let entry = row.chars().nth(index).unwrap();
+        let mut x = 0;
+        while x != row.len() {
+            let entry = row.chars().nth(x).unwrap();
 
             if entry.is_digit(10) {
-                let (number, length) = parse_number(&row[index..row.len()]);
+                let (number, length) = parse_number(&row[x..row.len()]);
 
                 if number.is_some() {
-                    for loop_index in 0..length {
-                        let key = (index + loop_index, row_index);
-                        numbers.insert( key, (number.unwrap(), id));
+                    for x_offset in 0..length {
+                        let key = (x + x_offset, y);
+                        numbers.insert(key, Number { value: number.unwrap(), id });
                     }
                     id += 1;
 
-                    index += length - 1;
+                    let to_check = get_surrounding_indices(x, y, length);
+
+                    for key in to_check {
+                        if symbols.contains_key(&key) {
+                            let symbol = symbols.get(&key).unwrap();
+                            let mut new_numbers = symbol.numbers.clone();
+                            new_numbers.push(number.unwrap());
+
+                            let new_symbol = Symbol { symbol: symbol.symbol, numbers: new_numbers };
+                            symbols.insert(key, new_symbol);
+                        }
+                    }
+
+                    x += length - 1;
                 }
             } else if entry != '.' {
-                symbols.push(((index, row_index), entry))
-            }
+                let key = (x, y);
 
-            index += 1;
-        }
+                let to_check = get_surrounding_indices(x, y, 0);
+                let mut ids = Vec::new();
 
-    }
+                let mut adjacent_numbers = Vec::new();
 
-    let mut total = 0;
-    for ((x, y), symbol) in symbols {
-        println!("checking {} at {}, {}", symbol, x, y);
-        let to_check = [
-            (x - 1, y - 1),
-            (x, y - 1),
-            (x + 1, y - 1),
-            (x - 1, y),
-            (x + 1, y),
-            (x - 1, y + 1),
-            (x, y + 1),
-            (x + 1, y + 1),
-        ];
-
-        let mut ids = Vec::new();
-        for (check_x, check_y) in to_check {
-            let key = (check_x, check_y);
-            let value = numbers.get(&key);
-            if value.is_some() {
-                let (number, id) = value.unwrap();
-                if !ids.contains(&id) {
-                    println!("    {} {} is {}", check_x, check_y, number);
-                    total += number;
-                    ids.push(id);
+                for key in to_check {
+                    if numbers.contains_key(&key) {
+                        let number = numbers.get(&key).unwrap();
+                        if !ids.contains(&number.id) {
+                            ids.push(number.id);
+                            adjacent_numbers.push(number.value)
+                        }
+                    }
                 }
+
+                let symbol = Symbol { symbol: entry, numbers: Vec::from(adjacent_numbers) };
+
+                symbols.insert(key, symbol);
             }
+
+            x += 1;
         }
+
     }
 
-    total
+    symbols.into_iter().map(|(_, symbol)| symbol).collect()
+}
+
+fn get_surrounding_indices(x: usize, y: usize, offset: usize) -> Vec<(usize, usize)> {
+    let mut indices = Vec::new();
+    if x > 0 && y > 0 { indices.push((x - 1, y - 1)); }
+    if y > 0 {
+        indices.push((x, y - 1));
+
+       if offset == 0 {
+           indices.push((x + 1, y - 1));
+       } else {
+           for value in 0..offset  {
+               indices.push((x + 1 + value, y - 1));
+           }
+       }
+    }
+    if x > 0 {
+        indices.push((x - 1, y));
+    }
+    indices
 }
 
 fn parse_number(row: &str) -> (Option<u32>, usize) {
@@ -91,9 +134,4 @@ fn parse_number(row: &str) -> (Option<u32>, usize) {
     }
 
     return (Some(row.parse::<u32>().unwrap()), row.len());
-}
-
-fn part_two() -> u32 {
-    let games = file::get_lines("input/day03/input.txt");
-    0
 }
