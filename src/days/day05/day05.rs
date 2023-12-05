@@ -6,7 +6,7 @@ use std::time::{Instant};
 use once_cell::sync::{Lazy};
 
 pub fn run() {
-    println!("day 4");
+    println!("day 5");
     let now = Instant::now();
     println!("  part 1: {} in {}ms", part_one(), now.elapsed().as_millis());
     let now = Instant::now();
@@ -14,7 +14,7 @@ pub fn run() {
 }
 
 struct Mapping {
-    start: usize,
+    source_start: usize,
     dest_start: usize,
     range: usize,
 }
@@ -66,16 +66,21 @@ fn get_lowest_seed(almanac: &Vec<String>, seeds: Vec<Range>) -> usize {
 }
 
 fn get_mappings(almanac: &Vec<String>) -> Vec<Vec<Mapping>> {
-    static MAPPING_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"\d+").unwrap());
+    static MAPPING_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\d+) (\d+) (\d+)").unwrap());
     almanac.split(|row| row.is_empty() || row.chars().any(|c| c.is_alphabetic()))
         .filter(|group| !group.is_empty())
         .map(Vec::from)
         .map(|mapping_group| {
             mapping_group.iter().map(|entry| {
+               let (_, [destination, source, range]) = MAPPING_REGEX.captures_iter(&*entry)
+                   .nth(0)
+                   .unwrap()
+                   .extract();
+
                 Mapping {
-                    start: MAPPING_REGEX.find_iter(&*entry).nth(1).unwrap().as_str().parse::<usize>().unwrap(),
-                    dest_start: MAPPING_REGEX.find_iter(&*entry).nth(0).unwrap().as_str().parse::<usize>().unwrap(),
-                    range: MAPPING_REGEX.find_iter(&*entry).nth(2).unwrap().as_str().parse::<usize>().unwrap(),
+                    source_start: source.parse::<usize>().unwrap(),
+                    dest_start: destination.parse::<usize>().unwrap(),
+                    range: range.parse::<usize>().unwrap(),
                 }
             }).collect::<Vec<Mapping>>()
         })
@@ -90,44 +95,40 @@ fn map_ranges(input_ranges: &Vec<Range>, mappings: &Vec<Mapping>) -> Vec<Range> 
 }
 
 fn map_range(input_range: &Range, sorted_mappings: &Vec<Mapping>) -> Vec<Range> {
-    let mut new_ranges = Vec::new();
-
-    let mut start = input_range.start;
-    let mappings_in_range = sorted_mappings.iter()
+    let (start, mut ranges) = sorted_mappings.iter()
         .filter(|mapping| mapping_contains_range(input_range, mapping))
-        .collect::<Vec<&Mapping>>();
+        .fold((input_range.start, Vec::new()), |(mut start, mut ranges), mapping| {
+            if start < mapping.source_start {
+                ranges.push(Range { start, end: mapping.source_start - 1 });
+                start = mapping.source_start;
+            }
 
-    for mapping in &mappings_in_range {
-        if start < mapping.start {
-            new_ranges.push(Range { start, end: mapping.start - 1 });
-            start = mapping.start;
-        }
+            if start <= input_range.end {
+                let range_end = min(input_range.end, mapping.source_start + mapping.range - 1) - mapping.source_start;
+                let range = Range {
+                    start: mapping.dest_start +  start - mapping.source_start,
+                    end: mapping.dest_start + range_end,
+                };
 
-        if start <= input_range.end {
-            let range_start = start - mapping.start;
-            let range_end = min(input_range.end, mapping.start + mapping.range - 1) - mapping.start;
+                ranges.push(range);
+                start = mapping.source_start + mapping.range
+            }
 
-            new_ranges.push(Range {
-                start: mapping.dest_start + range_start,
-                end: mapping.dest_start + range_end,
-            });
-
-            start = mapping.start + mapping.range
-        }
-    }
+            (start, ranges)
+        });
 
     if start <= input_range.end {
-        new_ranges.push(Range { start, end: input_range.end })
+        ranges.push(Range { start, end: input_range.end })
     }
 
-    new_ranges
+    ranges
 }
 
 fn mapping_contains_range(range: &Range, mapping: &Mapping) -> bool {
-    in_range(range, mapping.start)
-        || in_range(range, mapping.start + mapping.range - 1)
-        || in_range(&Range { start: mapping.start, end: mapping.start + mapping.range - 1 }, range.start)
-        || in_range(&Range { start: mapping.start, end: mapping.start + mapping.range - 1 }, range.end)
+    in_range(range, mapping.source_start)
+        || in_range(range, mapping.source_start + mapping.range - 1)
+        || in_range(&Range { start: mapping.source_start, end: mapping.source_start + mapping.range - 1 }, range.start)
+        || in_range(&Range { start: mapping.source_start, end: mapping.source_start + mapping.range - 1 }, range.end)
 }
 
 fn in_range(range: &Range, value: usize) -> bool {
