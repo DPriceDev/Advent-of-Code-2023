@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::cmp::{max, min, Ordering};
 use std::collections::{HashMap, HashSet};
 use crate::utils::file as file;
 
@@ -19,59 +19,121 @@ struct Product {
     ranges: Vec<Range>,
 }
 
-struct Range {
+struct Mapping {
     start: usize,
     dest_start: usize,
     range: usize,
 }
 
-fn part_one() -> u32 {
-    let almanac = file::get_lines("input/day05/input.txt");
-
-    let seeds = Regex::new(r"(\d+)").unwrap()
-        .find_iter(almanac.clone().into_iter().nth(0).unwrap().as_str())
-        .map(|seed| seed.as_str().parse::<u32>().unwrap())
-        .collect::<Vec<u32>>();
-
-    let mut products = HashMap::new();
-
-    let mut row_index = 2;
-
-    while row_index < almanac.clone().len() {
-        row_index = parse_product(row_index, &almanac, &mut products);
-    }
-
-    let test = find_locations(&seeds, &products);
-    let (_, min) = test.iter().min_by(|(_, a), (_, b)| a.cmp(b) ).unwrap();
-
-    min.clone() as u32
+struct Range {
+    start: usize,
+    end: usize,
 }
 
-fn parse_product(index: usize, almanac: &Vec<String>, products: &mut HashMap<String, Product>) -> usize {
-    static NAME_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\w+)-to-(\w+)").unwrap());
 
-    let mut row_index = index;
 
-    let name_row =  almanac.into_iter().nth(row_index).unwrap();
-    let (_, [source, destination]) = NAME_REGEX.captures_iter(name_row).nth(0).unwrap().extract();
+fn part_one() -> usize {
+    let almanac = file::get_lines("input/day05/input.txt");
+
+    let mut seeds_part = get_seeds(almanac.clone().into_iter().nth(0).unwrap().as_str())
+        .into_iter()
+        .map(|seeds| Range { start: seeds, end: seeds })
+        .collect::<Vec<Range>>();
+
+    let mut row_index = 2;
+    while row_index < almanac.len() {
+        let (mappings, new_index) = get_mappings(row_index, &almanac);
+        seeds_part = map_ranges(&seeds_part, &mappings);
+        row_index = new_index
+    }
+
+    seeds_part.into_iter()
+        .min_by(|a, b| a.start.cmp(&b.start))
+        .unwrap()
+        .start
+}
+
+fn part_two() -> usize {
+    let almanac = file::get_lines("input/day05/input.txt");
+
+    let seeds = get_seeds(almanac.clone().into_iter().nth(0).unwrap().as_str());
+
+    let mut seeds_part = seeds.into_iter()
+        .as_slice()
+        .chunks(2)
+        .map(|seeds| {
+            Range {
+                start: *seeds.into_iter().nth(0).unwrap(),
+                end: *seeds.into_iter().nth(0).unwrap() + *seeds.into_iter().nth(1).unwrap()
+            }
+        })
+        .collect::<Vec<Range>>();
+
+    let mut row_index = 2;
+    while row_index < almanac.len() {
+        let (mappings, new_index) = get_mappings(row_index, &almanac);
+        seeds_part = map_ranges(&seeds_part, &mappings);
+        row_index = new_index
+    }
+
+    seeds_part.into_iter()
+        .min_by(|a, b| a.start.cmp(&b.start))
+        .unwrap()
+        .start
+
+    // let input = Vec::from([Range { start: 0, end: 12 }]);
+    //
+    // let mappings = Vec::from([
+    //     Mapping {
+    //         start: 2,
+    //         dest_start: 40,
+    //         range: 5,
+    //     },
+    //     Mapping {
+    //         start: 10,
+    //         dest_start: 50,
+    //         range: 7,
+    //     },
+    //     Mapping {
+    //         start: 50,
+    //         dest_start: 100,
+    //         range: 7,
+    //     },
+    // ]);
+    //
+    // let new_ranges = map_ranges(&input, &mappings);
+    //
+    // for new_range in new_ranges {
+    //     println!("{} - {}", new_range.start, new_range.end)
+    // }
+}
+
+fn get_seeds(input: &str) -> Vec<usize> {
+    Regex::new(r"(\d+)").unwrap()
+        .find_iter(input)
+        .map(|seed| seed.as_str().parse::<usize>().unwrap())
+        .collect::<Vec<usize>>()
+}
+
+fn get_mappings(index: usize, almanac: &Vec<String>) -> (Vec<Mapping>, usize) {
+    let mut row_index = index + 1;
 
     let mut list = Vec::new();
-    row_index += 1;
+    // row_index += 1;
     static MAPPING_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"\d+").unwrap());
     while row_index < almanac.len() {
-        let row =  almanac.into_iter().nth(row_index).unwrap();
+        let row = almanac.into_iter().nth(row_index).unwrap().as_str();
 
         if row.is_empty() {
             row_index += 1;
-            products.insert(source.to_string(), Product { next: destination.to_string(), ranges: list });
-            return row_index
+            return (list, row_index)
         }
 
         let destination_start = MAPPING_REGEX.find_iter(row).nth(0).unwrap().as_str().parse::<usize>().unwrap();
         let source_start = MAPPING_REGEX.find_iter(row).nth(1).unwrap().as_str().parse::<usize>().unwrap();
         let range = MAPPING_REGEX.find_iter(row).nth(2).unwrap().as_str().parse::<usize>().unwrap();
 
-        list.push(Range {
+        list.push(Mapping {
             start: source_start,
             dest_start: destination_start,
             range,
@@ -80,42 +142,61 @@ fn parse_product(index: usize, almanac: &Vec<String>, products: &mut HashMap<Str
         row_index += 1;
     }
 
-    products.insert(source.to_string(), Product { next: destination.to_string(), ranges: list });
-    row_index
+    (list, row_index)
 }
 
-fn find_locations(seeds: &Vec<u32>, products: &HashMap<String, Product>) -> Vec<(u32, usize)> {
+// generic function that takes input ranges and maps them into output ranges
+fn map_ranges(input_ranges: &Vec<Range>, mappings: &Vec<Mapping>) -> Vec<Range> {
+    input_ranges.iter()
+        .map(|input_range| map_range(input_range, &mappings))
+        .flatten()
+        .collect::<Vec<Range>>()
+}
 
-    let mut seed_locations = Vec::new();
-    for seed in seeds {
-        let mut current_product = "seed";
-        let mut current_index = seed.clone() as usize;
+fn map_range(input_range: &Range, sorted_mappings: &Vec<Mapping>) -> Vec<Range> {
+    let mut new_ranges = Vec::new();
 
-        while current_product != "location" {
-            let product = products.get(current_product).unwrap();
+    let mut start = input_range.start;
+    let mappings_in_range = sorted_mappings.into_iter()
+        .filter(|mapping| mapping_contains_range(input_range, mapping))
+        .collect::<Vec<&Mapping>>();
 
-            current_index = test(&mut current_index, &product);
+    for mapping in &mappings_in_range {
+       println!("filtered mappings = {} - {}", mapping.start, mapping.range);
+       println!("input range = {} - {}", start, input_range.end);
 
-            current_product = &*product.next;
+        if start < mapping.start {
+            new_ranges.push(Range { start, end: mapping.start - 1 });
+            start = mapping.start;
         }
 
-        // save location
-        seed_locations.push((*seed, current_index));
-    }
+        if start <= input_range.end {
+            let range_start = start - mapping.start;
+            let range_end = min(input_range.end, mapping.start + mapping.range - 1) - mapping.start;
 
-    seed_locations
-}
+            new_ranges.push(Range {
+                start: mapping.dest_start + range_start,
+                end: mapping.dest_start + range_end
+            });
 
-fn test(current_index: & usize, product: &Product) -> usize {
-    for range in &product.ranges {
-        let source_max = range.start + range.range;
-        if current_index >= &range.start && current_index < &source_max {
-            return range.dest_start + (*current_index - range.start);
+            start = mapping.start + mapping.range
         }
     }
-    *current_index
+
+    if start <= input_range.end {
+        new_ranges.push(Range { start, end: input_range.end })
+    }
+
+    new_ranges
 }
 
-fn part_two() -> u32 {
-    0
+fn mapping_contains_range(range: &Range, mapping: &Mapping) -> bool {
+    in_range(range, mapping.start)
+        || in_range(range, mapping.start + mapping.range - 1)
+        || in_range(&Range { start: mapping.start, end: mapping.start + mapping.range - 1 }, range.start)
+        || in_range(&Range { start: mapping.start, end: mapping.start + mapping.range - 1 }, range.end)
+}
+
+fn in_range(range: &Range, value: usize) -> bool {
+    value >= range.start && value <= range.end
 }
